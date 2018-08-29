@@ -31,19 +31,21 @@
         |
       Captcha - Generic base class implementation for obtaining a CAPTCHA.
       |  |- image - The CAPTCHA image.
-      |  |- challenge - A unique string associated with this CAPTCHA image.
+      |  |- audio - The CAPTCHA audio.
+      |  |- challenge - A unique string associated with this CAPTCHA media.
       |  |- publicKey - The public key for this CAPTCHA system.
       |  |- secretKey - The secret key for this CAPTCHA system.
-      |   \_ get() - Get a new pair of CAPTCHA image and challenge strings.
+      |   \_ get() - Get a new pair of CAPTCHA media and challenge strings.
       |
       |- ReCaptcha - Obtain reCaptcha images and challenge strings.
       |   \_ get() - Request an image and challenge from a reCaptcha API server.
       |
       \_ GimpCaptcha - Class for obtaining a CAPTCHA from a local cache.
           |- hmacKey - A client-specific key for HMAC generation.
-          |- cacheDir - The path to the local CAPTCHA cache directory.
+          |- cacheImageDir - The path to the local CAPTCHA image cache directory.
+          |- cacheAudioDIr - The path to the local CAPTCHA audio cache directory.
           |- sched - A class for timing out CAPTCHAs after an interval.
-          \_ get() - Get a CAPTCHA image from the cache and create a challenge.
+          \_ get() - Get CAPTCHA image, audio from the cache and create a challenge.
 
 ..
 
@@ -89,6 +91,8 @@ class ICaptcha(Interface):
 
     image = Attribute(
         "A string containing the contents of a CAPTCHA image file.")
+    audio = Attribute(
+        "A string containing the contents of a CAPTCHA audio file.")
     challenge = Attribute(
         "A unique string associated with the dispursal of this CAPTCHA.")
     publicKey = Attribute(
@@ -106,11 +110,13 @@ class Captcha(object):
 
     :vartype image: str
     :ivar image: The CAPTCHA image.
+    :vartype audio: str
+    :ivar audio: The CAPTCHA audio.
     :vartype challenge: str
     :ivar challenge: A challenge string which should permit checking of
         the client's CAPTCHA solution in some manner. In stateless protocols
         such as HTTP, this should be passed along to the client with the
-        CAPTCHA image.
+        CAPTCHA media.
     :vartype publicKey: str
     :ivar publicKey: A public key used for encrypting CAPTCHA challenge strings.
     :vartype secretKey: str
@@ -122,18 +128,21 @@ class Captcha(object):
     def __init__(self, publicKey=None, secretKey=None):
         """Obtain a new CAPTCHA for a client."""
         self.image = None
+        self.audio = None
         self.challenge = None
         self.publicKey = publicKey
         self.secretKey = secretKey
 
     def get(self):
-        """Retrieve a new CAPTCHA image and its associated challenge string.
+        """Retrieve new CAPTCHA media and its associated challenge string.
 
         The image and challenge will be stored as
-        :attr:`image <bridgedb.captcha.Captcha.image>` and
+        :attr:`image <bridgedb.captcha.Captcha.image>`,
+        :attr:`image <bridgedb.captcha.Captcha.audio>` and
         :attr:`challenge <bridgedb.captcha.Captcha.challenge>`, respectively.
         """
         self.image = None
+        self.audio = None
         self.challenge = None
 
 
@@ -142,6 +151,8 @@ class ReCaptcha(Captcha):
 
     :vartype image: str
     :ivar image: The CAPTCHA image.
+    :vartype audio: str
+    :ivar audio: The CAPTCHA audio.
     :vartype challenge: str
     :ivar challenge: The ``'recaptcha_challenge_response'`` HTTP form
         field to pass to the client, along with the CAPTCHA image. See
@@ -172,7 +183,8 @@ class ReCaptcha(Captcha):
         ``recaptcha.client.captcha.API_SSL_SERVER`` and parses the returned
         HTML to extract the CAPTCHA image and challenge string. The image is
         stored at ``ReCaptcha.image`` and the challenge string at
-        ``ReCaptcha.challenge``.
+        ``ReCaptcha.challenge``. An empty string is stored in ``ReCaptcha.audio``;
+        audio CAPTCHAs are not implemented.
 
         :raises CaptchaKeyError: If either the :attr:`publicKey` or
             :attr:`secretKey` are missing.
@@ -194,9 +206,15 @@ class ReCaptcha(Captcha):
         self.challenge = str(cField['value'])                # pragma: no cover
         self.image = urllib2.urlopen(imgurl).read()          # pragma: no cover
 
+        # TODO: Audio isn't implemented for ReCaptcha.
+        # In other places, I've stuck an empty string as a response for the
+        # ReCaptcha case; will stick it here aswell.
+        self.audio = ''
+
 
 class GimpCaptcha(Captcha):
-    """A locally cached CAPTCHA image which was created with gimp-captcha_.
+    """A locally cached CAPTCHA image/audio which was created with
+    a utility such as gimp-captcha_.
 
     :vartype publicKey: str
     :ivar publicKey: A PKCS#1 OAEP-padded, public RSA key. This is used to
@@ -210,9 +228,13 @@ class GimpCaptcha(Captcha):
         verifying the client's solution to the CAPTCHA.
     :vartype hmacKey: bytes
     :ivar hmacKey: A client-specific HMAC secret key.
-    :vartype cacheDir: str
-    :ivar cacheDir: The local directory which pre-generated CAPTCHA images
+    :vartype cacheImageDir: str
+    :ivar cacheImageDir: The local directory which pre-generated CAPTCHA images
         have been stored in. This can be set via the ``GIMP_CAPTCHA_DIR``
+        setting in the config file.
+    :vartype cacheAudioDir: str
+    :ivar cacheAudioDir: The local directory which pre-generated CAPTCHA audio
+        has been stored in. This can be set via the ``GIMP_CAPTCHA_AUDIO_DIR``
         setting in the config file.
     :vartype sched: :class:`bridgedb.schedule.ScheduledInterval`
     :ivar sched: A time interval. After this amount time has passed, the
@@ -225,8 +247,9 @@ class GimpCaptcha(Captcha):
     sched = schedule.ScheduledInterval(30, 'minutes')
 
     def __init__(self, publicKey=None, secretKey=None, hmacKey=None,
-                 cacheDir=None):
-        """Create a ``GimpCaptcha`` which retrieves images from **cacheDir**.
+                 cacheImageDir=None, cacheAudioDir=None):
+        """Create a ``GimpCaptcha`` which retrieves images from
+        **cacheImageDir** and audio from **cacheAudioDir**.
 
         :param str publicKey: A PKCS#1 OAEP-padded, public RSA key, used for
             creating the ``captcha_challenge_field`` string to give to a
@@ -234,16 +257,26 @@ class GimpCaptcha(Captcha):
         :param str secretKey: A PKCS#1 OAEP-padded, private RSA key, used for
             verifying the client's solution to the CAPTCHA.
         :param bytes hmacKey: A client-specific HMAC secret key.
-        :param str cacheDir: The local directory which pre-generated CAPTCHA
+        :param str cacheImageDir: The local directory which pre-generated CAPTCHA
             images have been stored in. This can be set via the
             ``GIMP_CAPTCHA_DIR`` setting in the config file.
-        :raises GimpCaptchaError: if :attr:`cacheDir` is not a directory.
+        :param str cacheAudioDir: The local directory which pre-generated CAPTCHA
+            audio has been stored in. This can be set via the
+            ``GIMP_CAPTCHA_AUDIO_DIR`` setting in the config file.
+        :raises GimpCaptchaError: if :attr:`cacheImageDir` is not a directory.
+        :raises GimpCaptchaError: if :attr:`cacheAudioDir` is not a directory.
         :raises CaptchaKeyError: if any of :attr:`secretKey`,
             :attr:`publicKey`, or :attr:`hmacKey` are invalid or missing.
         """
-        if not cacheDir or not os.path.isdir(cacheDir):
-            raise GimpCaptchaError("Gimp captcha cache isn't a directory: %r"
-                                   % cacheDir)
+
+        # TODO: These don't and have failing unit tests.
+        if not cacheImageDir or not os.path.isdir(cacheImageDir):
+            raise GimpCaptchaError("GimpCaptcha image CAPTCHA cache isn't a"
+                    + " directory: %r" % cacheImageDir)
+        if cacheAudioDir and not os.path.isdir(cacheAudioDir):
+            raise GimpCaptchaError("GimpCaptcha audio CAPTCHA cache isn't a"
+                    + " directory: %r" % cacheAudioDir)
+
         if not (publicKey and secretKey and hmacKey):
             raise CaptchaKeyError(
                 "Invalid key supplied to GimpCaptcha: SK=%r PK=%r HMAC=%r"
@@ -252,7 +285,8 @@ class GimpCaptcha(Captcha):
         super(GimpCaptcha, self).__init__(publicKey=publicKey,
                                           secretKey=secretKey)
         self.hmacKey = hmacKey
-        self.cacheDir = cacheDir
+        self.cacheImageDir = cacheImageDir
+        self.cacheAudioDir = cacheAudioDir
         self.answer = None
 
     @classmethod
@@ -376,28 +410,49 @@ class GimpCaptcha(Captcha):
         """Get a random CAPTCHA from the cache directory.
 
         This chooses a random CAPTCHA image file from the cache directory, and
-        reads the contents of the image into a string. Next, it creates a
-        challenge string for the CAPTCHA, via :meth:`createChallenge`.
+        reads the contents of the image into a string. If :attr:`cacheAudioDir`
+        is set, it attempts to load the corresponding audio CAPTCHA.
+
+        Next, it creates a challenge string for the CAPTCHA, via
+        :meth:`createChallenge`.
 
         :raises GimpCaptchaError: if the chosen CAPTCHA image file could not
-            be read, or if the :attr:`cacheDir` is empty.
+            be read, or if the :attr:`cacheImageDir` is empty.
         :rtype: tuple
-        :returns: A 2-tuple containing the image file contents as a string,
-            and a challenge string (used for checking the client's solution).
+        :returns: A 3-tuple containing the image file contents as a string,
+            the audio file contents as a string, and a challenge string (used
+            for checking the client's solution).
         """
         try:
-            imageFilename = random.choice(os.listdir(self.cacheDir))
-            imagePath = os.path.join(self.cacheDir, imageFilename)
+            imageFilename = random.choice(os.listdir(self.cacheImageDir))
+            imagePath = os.path.join(self.cacheImageDir, imageFilename)
             with open(imagePath) as imageFile:
                 self.image = imageFile.read()
         except IndexError:
-            raise GimpCaptchaError("CAPTCHA cache dir appears empty: %r"
-                                   % self.cacheDir)
+            raise GimpCaptchaError("CAPTCHA image cache dir appears empty: %r"
+                                   % self.cacheImageDir)
         except (OSError, IOError):
             raise GimpCaptchaError("Could not read Gimp captcha image file: %r"
                                    % imageFilename)
+        # If the cacheAudioDir is defined, we'll try to load the cache image.
+        # Otherwise, we're just returning an empty string.
+        if self.cacheAudioDir:
+            try:
+                # We're dependent on the files having name.extension naming.
+                audioFilename = imageFilename.split('.')[0] + ".wav"
+                audioPath = os.path.join(self.cacheAudioDir, audioFilename)
+                with open(audioPath) as audioFile:
+                    self.audio = audioFile.read()
+            except IndexError:
+                raise GimpCaptchaError("CAPTCHA audio cache dir not complete: %r"
+                        % self.cacheAudioDir)
+            except (OSError, IOError):
+                raise GimpCaptchaError("Could not read Gimp captcha audio file: %r"
+                        % audioFilename)
+        else:
+            self.audio = ''
 
         self.answer = imageFilename.rsplit(os.path.extsep, 1)[0]
         self.challenge = self.createChallenge(self.answer)
 
-        return (self.image, self.challenge)
+        return (self.image, self.audio, self.challenge)
