@@ -402,12 +402,13 @@ class CaptchaProtectedResource(CustomErrorHandlingResource, CSPResource):
         """Get a CAPTCHA image.
 
         :rtype: tuple
-        :returns: A 2-tuple of ``(image, challenge)``, where ``image`` is a
-            binary, JPEG-encoded image, and ``challenge`` is a unique
+        :returns: A 3-tuple of ``(image, audio, challenge)``, where ``image``
+            is a binary, JPEG-encoded image, ``audio`` is a binary, WAV-encoded
+            audio file, and ``challenge`` is a unique
             string. If unable to retrieve a CAPTCHA, returns a tuple
-            containing two empty strings.
+            containing three empty strings.
         """
-        return ('', '')
+        return ('', '', '')
 
     def extractClientSolution(self, request):
         """Extract the client's CAPTCHA solution from a POST request.
@@ -454,18 +455,27 @@ class CaptchaProtectedResource(CustomErrorHandlingResource, CSPResource):
         self.setCSPHeader(request)
 
         rtl = False
-        image, challenge = self.getCaptchaImage(request)
+        image, audio, challenge = self.getCaptchaImage(request)
 
         try:
             langs = translations.getLocaleFromHTTPRequest(request)
             rtl = translations.usingRTLLang(langs)
             # TODO: this does not work for versions of IE < 8.0
             imgstr = 'data:image/jpeg;base64,%s' % base64.b64encode(image)
+
+            if audio != '':
+                # TODO: who knows what browsers this works for, or whether
+                # this even works at all.
+                audiostr = 'data:audio/wav;base64,%s' % base64.b64encode(audio)
+            else:
+                audiostr = ''
+
             template = lookup.get_template('captcha.html')
             rendered = template.render(strings,
                                        rtl=rtl,
                                        lang=langs[0],
                                        imgstr=imgstr,
+                                       audiostr=audiostr,
                                        challenge_field=challenge)
         except Exception as err:
             rendered = replaceErrorPage(request, err, 'captcha.html')
@@ -521,7 +531,8 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
     .. _gimp-captcha: https://github.com/isislovecruft/gimp-captcha
     """
 
-    def __init__(self, hmacKey=None, captchaDir='', **kwargs):
+    def __init__(self, hmacKey=None, captchaImageDir='', captchaAudioDir=None,
+            **kwargs):
         """Protect a resource via this one, using a local CAPTCHA cache.
 
         :param str secretkey: A PKCS#1 OAEP-padded, private RSA key, used for
@@ -535,8 +546,10 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
             challenge strings in :meth:`captcha.GimpCaptcha.check`. The file
             where this key is stored can be set via the
             ``GIMP_CAPTCHA_HMAC_KEYFILE`` option in the config file.
-        :param str captchaDir: The directory where the cached CAPTCHA images
+        :param str captchaImageDir: The directory where the cached CAPTCHA images
             are stored. See the ``GIMP_CAPTCHA_DIR`` config setting.
+        :param str captchaAudioDir: The directory where the cached CAPTCHA audio
+            is stored. See the ``GIMP_CAPTCHA_AUDIOD_RI`` config setting.
         :param bool useForwardedHeader: If ``True``, obtain the client's IP
             address from the ``X-Forwarded-For`` HTTP header.
         :type protectedResource: :api:`twisted.web.resource.Resource`
@@ -547,7 +560,8 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
         """
         CaptchaProtectedResource.__init__(self, **kwargs)
         self.hmacKey = hmacKey
-        self.captchaDir = captchaDir
+        self.captchaImageDir = captchaImageDir
+        self.captchaAudioDir = captchaAudioDir
 
     def checkSolution(self, request):
         """Process a solved CAPTCHA via :meth:`bridgedb.captcha.GimpCaptcha.check`.
@@ -578,7 +592,8 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
         return valid
 
     def getCaptchaImage(self, request):
-        """Get a random CAPTCHA image from our **captchaDir**.
+        """Get a random CAPTCHA image from our **captchaImageDir**,
+        and if set the corresponding CAPTCHA audio from **captchaAudioDir**.
 
         Creates a :class:`~bridgedb.captcha.GimpCaptcha`, and calls its
         :meth:`~bridgedb.captcha.GimpCaptcha.get` method to return a random
@@ -587,15 +602,17 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
         :type request: :api:`twisted.web.http.Request`
         :param request: A client's initial request for some other resource
             which is protected by this one (i.e. protected by a CAPTCHA).
-        :returns: A 2-tuple of ``(image, challenge)``, where::
+        :returns: A 3-tuple of ``(image, audio, challenge)``, where::
             - ``image`` is a string holding a binary, JPEG-encoded image.
+            - ``audio`` is a string holding a binary, WAV-encoded audio file.
             - ``challenge`` is a unique string associated with the request.
         """
         # Create a new HMAC key, specific to requests from this client:
         clientIP = self.getClientIP(request)
         clientHMACKey = crypto.getHMAC(self.hmacKey, clientIP)
         capt = captcha.GimpCaptcha(self.publicKey, self.secretKey,
-                                   clientHMACKey, self.captchaDir)
+                                   clientHMACKey, self.captchaImageDir,
+                                   self.captchaAudioDir)
         try:
             capt.get()
         except captcha.GimpCaptchaError as error:
@@ -604,7 +621,7 @@ class GimpCaptchaProtectedResource(CaptchaProtectedResource):
             logging.error("Unhandled error while retrieving Gimp captcha!")
             logging.exception(error)
 
-        return (capt.image, capt.challenge)
+        return (capt.image, capt.audio, capt.challenge)
 
     def render_GET(self, request):
         """Get a random CAPTCHA from our local cache directory and serve it to
@@ -688,8 +705,11 @@ class ReCaptchaProtectedResource(CaptchaProtectedResource):
         :type request: :api:`twisted.web.http.Request`
         :param request: A client's initial request for some other resource
             which is protected by this one (i.e. protected by a CAPTCHA).
-        :returns: A 2-tuple of ``(image, challenge)``, where::
+        :returns: A 3-tuple of ``(image, audio, challenge)``, where::
             - ``image`` is a string holding a binary, JPEG-encoded image.
+            - ``audio`` is a string holding a binary, WAV-encoded audio file.
+                # NOTE: This isn't implemented for ReCaptcha, and is just the
+                empty string.
             - ``challenge`` is a unique string associated with the request.
         """
         capt = captcha.ReCaptcha(self.publicKey, self.secretKey)
@@ -702,7 +722,7 @@ class ReCaptchaProtectedResource(CaptchaProtectedResource):
         if capt.image is None:
             logging.warn("No CAPTCHA image received from ReCaptcha server!")
 
-        return (capt.image, capt.challenge)
+        return (capt.image, '', capt.challenge)
 
     def getRemoteIP(self):
         """Mask the client's real IP address with a faked one.
@@ -1005,7 +1025,9 @@ def addWebServer(config, distributor):
              RECAPTCHA_SEC_KEY
              RECAPTCHA_REMOTEIP
              GIMP_CAPTCHA_ENABLED
+             GIMP_CAPTCHA_AUDIO_ENABLED
              GIMP_CAPTCHA_DIR
+             GIMP_CAPTCHA_AUDIO_DIR
              GIMP_CAPTCHA_HMAC_KEYFILE
              GIMP_CAPTCHA_RSA_KEYFILE
              SERVER_PUBLIC_FQDN
@@ -1061,9 +1083,14 @@ def addWebServer(config, distributor):
         hmacKey = crypto.getHMAC(captchaKey, "Captcha-Key")
         # Load or create our encryption keys:
         secretKey, publicKey = crypto.getRSAKey(config.GIMP_CAPTCHA_RSA_KEYFILE)
+        if config.GIMP_CAPTCHA_AUDIO_ENABLED:
+            captchaAudioDir = config.GIMP_CAPTCHA_AUDIO_DIR
+        else:
+            captchaAudioDir = None
         captcha = partial(GimpCaptchaProtectedResource,
                           hmacKey=hmacKey,
-                          captchaDir=config.GIMP_CAPTCHA_DIR)
+                          captchaImageDir=config.GIMP_CAPTCHA_DIR,
+                          captchaAudioDir=captchaAudioDir)
 
     if config.HTTPS_ROTATION_PERIOD:
         count, period = config.HTTPS_ROTATION_PERIOD.split()
