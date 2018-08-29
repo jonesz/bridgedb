@@ -138,6 +138,7 @@ OPTIONS = {
 CAPTCHA = {
     0: _('Your browser is not displaying images properly.'),
     1: _('Enter the characters from the image above...'),
+    2: _('Your browser is unable to play the audio captcha.'),
 }
 
 HOWTO_TBB = {
