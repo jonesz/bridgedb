@@ -309,7 +309,9 @@ class CaptchaFetchResource(CaptchaResource):
     isLeaf = True
 
     def __init__(self, hmacKey=None, publicKey=None, secretKey=None,
-                 captchaDir="captchas", useForwardedHeader=True, skipLoopback=False):
+                 captchaImageDir="captchas/image",
+                 captchaAudioDir="captchas/audio",
+                 useForwardedHeader=True, skipLoopback=False):
         """DOCDOC
 
         :param bytes hmacKey: The master HMAC key, used for validating CAPTCHA
@@ -324,7 +326,8 @@ class CaptchaFetchResource(CaptchaResource):
         :param str publickey: A PKCS#1 OAEP-padded, public RSA key, used for
             creating the ``captcha_challenge_field`` string to give to a
             client.
-        :param str captchaDir: The directory where the cached CAPTCHA images
+        :param str captchaImageDir: The directory where the cached CAPTCHA images are stored.
+        :param str captchaAudioDir: The directory where the cached CAPTCHA audio is stored.
         :param bool useForwardedHeader: If ``True``, obtain the client's IP
             address from the ``X-Forwarded-For`` HTTP header.
         :param bool skipLoopback: Skip loopback addresses when parsing the
@@ -332,7 +335,8 @@ class CaptchaFetchResource(CaptchaResource):
         """
         CaptchaResource.__init__(self, hmacKey, publicKey, secretKey,
                                  useForwardedHeader)
-        self.captchaDir = captchaDir
+        self.captchaImageDir = captchaImageDir
+        self.captchaAudioDir = captchaAudioDir
         self.supportedTransports = getSupportedTransports()
 
     def getCaptchaImage(self, request):
@@ -345,15 +349,17 @@ class CaptchaFetchResource(CaptchaResource):
         :type request: :api:`twisted.web.http.Request`
         :param request: A client's initial request for some other resource
             which is protected by this one (i.e. protected by a CAPTCHA).
-        :returns: A 2-tuple of ``(image, challenge)``, where::
+        :returns: A 3-tuple of ``(image, audio, challenge)``, where::
             - ``image`` is a string holding a binary, JPEG-encoded image.
+            - ``audio`` is a string holding a binary, WAV-encoded image.
             - ``challenge`` is a unique string associated with the request.
         """
         # Create a new HMAC key, specific to requests from this client:
         clientIP = self.getClientIP(request)
         clientHMACKey = crypto.getHMAC(self.hmacKey, clientIP)
         capt = captcha.GimpCaptcha(self.publicKey, self.secretKey,
-                                   clientHMACKey, self.captchaDir)
+                                   clientHMACKey, self.captchaImageDir,
+                                   self.captchaAudioDir)
         try:
             capt.get()
         except captcha.GimpCaptchaError as error:
@@ -362,7 +368,7 @@ class CaptchaFetchResource(CaptchaResource):
             logging.error("Unhandled error while retrieving Gimp captcha!")
             logging.error(impossible)
 
-        return (capt.image, capt.challenge)
+        return (capt.image, capt.audio, capt.challenge)
 
     def getPreferredTransports(self, supportedTransports):
         """Choose which transport a client should request, based on their list
@@ -445,6 +451,7 @@ class CaptchaFetchResource(CaptchaResource):
         :returns: A JSON blob containing the following fields:
              * "version": The moat protocol version.
              * "image": A base64-encoded CAPTCHA JPEG image.
+             * "audio": A base64-encoded CAPTCHA WAV file.
              * "challenge": A base64-encoded, encrypted challenge.  The client
                will need to hold on to the and pass it back later, along with
                their challenge response.
@@ -458,7 +465,7 @@ class CaptchaFetchResource(CaptchaResource):
 
         supported = self.extractSupportedTransports(request)
         preferred = self.getPreferredTransports(supported)
-        image, challenge = self.getCaptchaImage(request)
+        image, audio, challenge = self.getCaptchaImage(request)
 
         data = {
             'data': [{
