@@ -324,14 +324,16 @@ class CaptchaFetchResourceTests(unittest.TestCase):
 
     def setUp(self):
         self.topDir = os.getcwd().rstrip('_trial_temp')
-        self.captchaDir = os.path.join(self.topDir, 'captchas')
+        self.captchaImageDir = os.path.join(self.topDir, 'captchas/image')
+        self.captchaAudioDir = os.path.join(self.topDir, 'captchas/audio')
         self.captchaKey = CAPTCHA_KEY
         self.hmacKey = HMAC_KEY
         self.secretKey, self.publicKey = SECRET_KEY, PUBLIC_KEY
         self.resource = server.CaptchaFetchResource(self.hmacKey,
                                                     self.publicKey,
                                                     self.secretKey,
-                                                    self.captchaDir)
+                                                    self.captchaImageDir,
+                                                    self.captchaAudioDir)
         self.pagename = b'fetch'
         self.root = Resource()
         self.root.putChild(self.pagename, self.resource)
@@ -340,8 +342,10 @@ class CaptchaFetchResourceTests(unittest.TestCase):
         server.setPreferredTransports(['obfs4', 'vanilla'])
 
     def make_captcha_directory(self):
-        if not os.path.isdir(self.captchaDir):
-            os.mkdir(self.captchaDir)
+        if not os.path.isdir(self.captchaImageDir):
+            os.mkdir(self.captchaImageDir)
+        if not os.path.isdir(self.captchaAudioDir):
+            os.mkdir(self.captchaAudioDir)
 
     def create_POST_with_data(self, data):
         request = DummyRequest([self.pagename])
@@ -445,7 +449,7 @@ class CaptchaFetchResourceTests(unittest.TestCase):
         request = DummyRequest([self.pagename])
         request.method = b'GET'
 
-        image, challenge = self.resource.getCaptchaImage(request)
+        image, audio, challenge = self.resource.getCaptchaImage(request)
 
         self.assertIsNotNone(image)
         self.assertIsNotNone(challenge)
@@ -454,14 +458,20 @@ class CaptchaFetchResourceTests(unittest.TestCase):
         request = DummyRequest([self.pagename])
         request.method = b'GET'
 
-        captchaDirOrig = self.resource.captchaDir
-        captchaDirNew = tempfile.mkdtemp()
-        self.resource.captchaDir = captchaDirNew
-        image, challenge = self.resource.getCaptchaImage(request)
-        self.resource.captchaDir = captchaDirOrig
-        shutil.rmtree(captchaDirNew)
+        captchaImageDirOrig = self.resource.captchaImageDir
+        captchaAudioDirOrig = self.resource.captchaAudioDir
+        captchaImageDirNew = tempfile.mkdtemp()
+        captchaAudioDirNew = tempfile.mkdtemp()
+        self.resource.captchaImageDir = captchaImageDirNew
+        self.resource.captchaAudioDir = captchaAudioDirNew
+        image, audio, challenge = self.resource.getCaptchaImage(request)
+        self.resource.captchaImageDir = captchaImageDirOrig
+        self.resource.captchaAudioDir = captchaAudioDirOrig
+        shutil.rmtree(captchaImageDirNew)
+        shutil.rmtree(captchaAudioDirNew)
 
         self.assertIsNone(image)
+        self.assertIsNone(audio)
         self.assertIsNone(challenge)
 
     def test_extractSupportedTransports_missing_type(self):
@@ -595,7 +605,8 @@ class CaptchaCheckResourceTests(unittest.TestCase):
 
     def setUp(self):
         self.topDir = os.getcwd().rstrip('_trial_temp')
-        self.captchaDir = os.path.join(self.topDir, 'captchas')
+        self.captchaImageDir = os.path.join(self.topDir, 'captchas/image')
+        self.captchaAudioDir = os.path.join(self.topDir, 'captchas/audio')
         self.captchaKey = CAPTCHA_KEY
         self.hmacKey = HMAC_KEY
         self.secretKey, self.publicKey = SECRET_KEY, PUBLIC_KEY
@@ -662,9 +673,10 @@ class CaptchaCheckResourceTests(unittest.TestCase):
         request.requestHeaders.addRawHeader('X-Forwarded-For', '3.3.3.3')
 
         resource = server.CaptchaFetchResource(self.hmacKey, self.publicKey,
-                                               self.secretKey, self.captchaDir,
+                                               self.secretKey, self.captchaImageDir,
+                                               self.captchaAudioDir,
                                                useForwardedHeader=False)
-        image, challenge = resource.getCaptchaImage(request)
+        image, audio, challenge = resource.getCaptchaImage(request)
 
         request = self.create_valid_POST_with_challenge(challenge)
         request.client = requesthelper.IPv4Address('TCP', '3.3.3.3', 443)
@@ -920,9 +932,10 @@ class CaptchaCheckResourceTests(unittest.TestCase):
         request.requestHeaders.addRawHeader('X-Forwarded-For', '3.3.3.3')
 
         resource = server.CaptchaFetchResource(self.hmacKey, self.publicKey,
-                                               self.secretKey, self.captchaDir,
+                                               self.secretKey, self.captchaImageDir,
+                                               self.captchaAudioDir,
                                                useForwardedHeader=False)
-        image, challenge = resource.getCaptchaImage(request)
+        image, audio, challenge = resource.getCaptchaImage(request)
 
         data = {
             'data': [{

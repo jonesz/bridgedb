@@ -18,7 +18,8 @@ from bridgedb.persistent import Conf
 from . import util
 
 
-GIMP_CAPTCHA_DIR = 'captchas'
+GIMP_CAPTCHA_DIR = 'captchas/image'
+GIMP_CAPTCHA_AUDIO_DIR = 'captchas/audio'
 SERVER_PUBLIC_FQDN = 'bridges.torproject.org'
 SUPPORTED_TRANSPORTS = {
     'obfs2': False,
@@ -50,6 +51,7 @@ MOAT_GIMP_CAPTCHA_RSA_KEYFILE = 'moat_captcha_rsa_key'
 
 TEST_CONFIG_FILE = io.StringIO(unicode("""\
 GIMP_CAPTCHA_DIR = %r
+GIMP_CAPTCHA_AUDIO_DIR = %r
 SERVER_PUBLIC_FQDN = %r
 SUPPORTED_TRANSPORTS = %r
 MOAT_DIST = %r
@@ -70,6 +72,7 @@ MOAT_ROTATION_PERIOD = %r
 MOAT_GIMP_CAPTCHA_HMAC_KEYFILE = %r
 MOAT_GIMP_CAPTCHA_RSA_KEYFILE = %r
 """ % (GIMP_CAPTCHA_DIR,
+       GIMP_CAPTCHA_AUDIO_DIR,
        SERVER_PUBLIC_FQDN,
        SUPPORTED_TRANSPORTS,
        MOAT_DIST,
