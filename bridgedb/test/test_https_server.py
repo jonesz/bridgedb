@@ -328,9 +328,12 @@ class GimpCaptchaProtectedResourceTests(unittest.TestCase):
         a :class:`GimpCaptchaProtectedResource`.
         """
         # Create our cached CAPTCHA directory:
-        self.captchaDir = 'captchas'
-        if not os.path.isdir(self.captchaDir):
-            os.makedirs(self.captchaDir)
+        self.captchaImageDir = 'captchas/image'
+        self.captchaAudioDir = 'captchas/audio'
+        if not os.path.isdir(self.captchaImageDir):
+            os.makedirs(self.captchaImageDir)
+        if not os.path.isdir(self.captchaAudioDir):
+            os.makedirs(self.captchaAudioDir)
 
         # Set up our resources to fake a minimal HTTP(S) server:
         self.pagename = b'captcha.html'
@@ -341,7 +344,8 @@ class GimpCaptchaProtectedResourceTests(unittest.TestCase):
             secretKey='42',
             publicKey='23',
             hmacKey='abcdefghijklmnopqrstuvwxyz012345',
-            captchaDir='captchas',
+            captchaImageDir='captchas/image',
+            captchaAudioDir='captchas/audio',
             useForwardedHeader=True,
             protectedResource=self.protectedResource)
 
@@ -352,8 +356,10 @@ class GimpCaptchaProtectedResourceTests(unittest.TestCase):
 
     def tearDown(self):
         """Delete the cached CAPTCHA directory if it still exists."""
-        if os.path.isdir(self.captchaDir):
-            shutil.rmtree(self.captchaDir)
+        if os.path.isdir(self.captchaImageDir):
+            shutil.rmtree(self.captchaImageDir)
+        if os.path.isdir(self.captchaAudioDir):
+            shutil.rmtree(self.captchaAudioDir)
 
     def test_extractClientSolution(self):
         """A (challenge, sollution) pair extracted from a request resulting
@@ -403,7 +409,7 @@ class GimpCaptchaProtectedResourceTests(unittest.TestCase):
         """
         self.request.method = b'GET'
         response = self.captchaResource.getCaptchaImage(self.request)
-        (image, challenge) = response
+        (image, audio, challenge) = response
         # Because we created the directory, there weren't any CAPTCHAs to
         # retrieve from it:
         self.assertIs(image, None)
@@ -413,7 +419,7 @@ class GimpCaptchaProtectedResourceTests(unittest.TestCase):
         """Retrieving a (captcha, challenge) with an missing captchaDir should
         raise a bridgedb.captcha.GimpCaptchaError.
         """
-        shutil.rmtree(self.captchaDir)
+        shutil.rmtree(self.captchaImageDir)
         self.request.method = b'GET'
         self.assertRaises(server.captcha.GimpCaptchaError,
                           self.captchaResource.getCaptchaImage, self.request)
